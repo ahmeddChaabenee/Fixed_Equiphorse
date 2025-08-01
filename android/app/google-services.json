@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "707806279505",
+    "project_id": "notifications-eea02",
+    "storage_bucket": "notifications-eea02.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:707806279505:android:daf03e86054b632a768570",
+        "android_client_info": {
+          "package_name": "com.example.fixed_equiphorse"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAl_juB7LIpAkuJaYL-Yxy6pEXDZkfkyUU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
