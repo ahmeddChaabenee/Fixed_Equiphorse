@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Instance pour les notifications locales
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -116,38 +117,51 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _setupNotificationListeners();
   }
 
-  void _initWebView() {
-    String startUrl = widget.initialUrl ?? homeUrl;
-    
-    // SOLUTION PROBLÈME 1: Ajouter l'URL d'accueil à l'historique si on démarre avec une notification
-    if (widget.initialUrl != null) {
-      _navigationHistory.add(homeUrl);
-    }
-    _navigationHistory.add(startUrl);
-    
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (String url) {
-            // SOLUTION PROBLÈME 1: Ajouter à l'historique seulement si ce n'est pas un retour
-            if (_navigationHistory.isEmpty || _navigationHistory.last != url) {
-              _navigationHistory.add(url);
-            }
-          },
-          onPageFinished: (String url) {
-            setState(() {
-              _isWebViewReady = true;
-            });
-          },
-          onNavigationRequest: (request) =>
-              request.url.startsWith('https://equiphorse.tn')
-                  ? NavigationDecision.navigate
-                  : NavigationDecision.prevent,
-        ),
-      )
-      ..loadRequest(Uri.parse(startUrl));
+void _initWebView() {
+  String startUrl = widget.initialUrl ?? homeUrl;
+
+  if (widget.initialUrl != null) {
+    _navigationHistory.add(homeUrl);
   }
+  _navigationHistory.add(startUrl);
+
+  _controller = WebViewController()
+    ..setJavaScriptMode(JavaScriptMode.unrestricted)
+    ..setNavigationDelegate(
+      NavigationDelegate(
+        onPageStarted: (String url) {
+          if (_navigationHistory.isEmpty || _navigationHistory.last != url) {
+            _navigationHistory.add(url);
+          }
+        },
+        onPageFinished: (String url) {
+          setState(() {
+            _isWebViewReady = true;
+          });
+        },
+        onNavigationRequest: (request) {
+          // Autoriser le domaine principal
+          if (request.url.startsWith('https://equiphorse.tn')) {
+            return NavigationDecision.navigate;
+          }
+          // Autoriser ouverture externe pour les autres liens
+          _openExternalLink(request.url);
+          return NavigationDecision.prevent;
+        },
+      ),
+    )
+    ..loadRequest(Uri.parse(startUrl));
+}
+
+Future<void> _openExternalLink(String url) async {
+  final Uri uri = Uri.parse(url);
+  if (await canLaunchUrl(uri)) {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } else {
+    print("Impossible d'ouvrir le lien : $url");
+  }
+}
+
 
   void _setupNotificationListeners() {
     // SOLUTION PROBLÈME 2: Gestion des notifications en premier plan avec notifications natives
