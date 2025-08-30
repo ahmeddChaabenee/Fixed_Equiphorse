@@ -8,7 +8,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // Instance pour les notifications locales
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
 
 // Handler des notifications en arrière-plan
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -25,30 +26,47 @@ _MyHomePageState? _currentAppInstance;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  
-  // Initialiser les notifications locales
+
   await _initializeLocalNotifications();
-  
+
+  // Request iOS permissions
+  if (Platform.isIOS) {
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    // Foreground notifications
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+  }
+
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  
-  // Vérifier s'il y a une notification au démarrage
+
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
   if (initialMessage != null) {
     _notificationUrl = initialMessage.data['url'];
   }
-  
+
   runApp(MyApp(initialUrl: _notificationUrl));
 }
 
 // SOLUTION PROBLÈME 2: Initialisation des notifications locales
 Future<void> _initializeLocalNotifications() async {
-  const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-  
-  const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings(
-    requestSoundPermission: true,
-    requestBadgePermission: true,
-    requestAlertPermission: true,
-  );
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const DarwinInitializationSettings initializationSettingsIOS =
+      DarwinInitializationSettings(
+        requestSoundPermission: true,
+        requestBadgePermission: true,
+        requestAlertPermission: true,
+      );
 
   const InitializationSettings initializationSettings = InitializationSettings(
     android: initializationSettingsAndroid,
@@ -57,21 +75,22 @@ Future<void> _initializeLocalNotifications() async {
 
   await flutterLocalNotificationsPlugin.initialize(
     initializationSettings,
-    onDidReceiveNotificationResponse: (NotificationResponse notificationResponse) async {
-      // Gérer le clic sur notification locale
-      final String? payload = notificationResponse.payload;
-      if (payload != null && _currentAppInstance != null) {
-        print('Notification locale cliquée avec payload: $payload');
-        // Rediriger vers l'URL dans l'app
-        _currentAppInstance!._handleNotificationUrl(payload);
-      }
-    },
+    onDidReceiveNotificationResponse:
+        (NotificationResponse notificationResponse) async {
+          // Gérer le clic sur notification locale
+          final String? payload = notificationResponse.payload;
+          if (payload != null && _currentAppInstance != null) {
+            print('Notification locale cliquée avec payload: $payload');
+            // Rediriger vers l'URL dans l'app
+            _currentAppInstance!._handleNotificationUrl(payload);
+          }
+        },
   );
 }
 
 class MyApp extends StatelessWidget {
   final String? initialUrl;
-  
+
   const MyApp({super.key, this.initialUrl});
 
   @override
@@ -87,7 +106,7 @@ class MyApp extends StatelessWidget {
 
 class MyHomePage extends StatefulWidget {
   final String? initialUrl;
-  
+
   const MyHomePage({super.key, this.initialUrl});
 
   @override
@@ -99,7 +118,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   bool _isDialogVisible = false;
   bool _notificationsAllowed = false;
   bool _isWebViewReady = false;
-  
+
   // SOLUTION PROBLÈME 1: Stack pour gérer l'historique de navigation
   final List<String> _navigationHistory = [];
   static const String homeUrl = 'https://equiphorse.tn/equiphorse/fr/';
@@ -109,7 +128,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     super.initState();
     // Enregistrer cette instance comme instance courante
     _currentAppInstance = this;
-    
+
     WidgetsBinding.instance.addObserver(this);
     _initWebView();
     _checkNotificationStatus();
@@ -117,51 +136,58 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _setupNotificationListeners();
   }
 
-void _initWebView() {
-  String startUrl = widget.initialUrl ?? homeUrl;
+  void _initWebView() {
+    String startUrl = widget.initialUrl ?? homeUrl;
 
-  if (widget.initialUrl != null) {
-    _navigationHistory.add(homeUrl);
+    if (widget.initialUrl != null) {
+      _navigationHistory.add(homeUrl);
+    }
+    _navigationHistory.add(startUrl);
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (String url) {
+            if (_navigationHistory.isEmpty || _navigationHistory.last != url) {
+              _navigationHistory.add(url);
+            }
+          },
+          onPageFinished: (String url) {
+            setState(() {
+              _isWebViewReady = true;
+            });
+          },
+          onNavigationRequest: (request) {
+            final url = request.url;
+
+            // Autoriser domaine principal
+            if (url.startsWith('https://equiphorse.tn')) {
+              return NavigationDecision.navigate;
+            }
+
+            // Autoriser YouTube à rester dans le WebView
+            if (url.contains("youtube.com") || url.contains("youtu.be")) {
+              return NavigationDecision.navigate;
+            }
+
+            // Sinon, ouvrir en externe
+            _openExternalLink(url);
+            return NavigationDecision.prevent;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(startUrl));
   }
-  _navigationHistory.add(startUrl);
 
-  _controller = WebViewController()
-    ..setJavaScriptMode(JavaScriptMode.unrestricted)
-    ..setNavigationDelegate(
-      NavigationDelegate(
-        onPageStarted: (String url) {
-          if (_navigationHistory.isEmpty || _navigationHistory.last != url) {
-            _navigationHistory.add(url);
-          }
-        },
-        onPageFinished: (String url) {
-          setState(() {
-            _isWebViewReady = true;
-          });
-        },
-        onNavigationRequest: (request) {
-          // Autoriser le domaine principal
-          if (request.url.startsWith('https://equiphorse.tn')) {
-            return NavigationDecision.navigate;
-          }
-          // Autoriser ouverture externe pour les autres liens
-          _openExternalLink(request.url);
-          return NavigationDecision.prevent;
-        },
-      ),
-    )
-    ..loadRequest(Uri.parse(startUrl));
-}
-
-Future<void> _openExternalLink(String url) async {
-  final Uri uri = Uri.parse(url);
-  if (await canLaunchUrl(uri)) {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  } else {
-    print("Impossible d'ouvrir le lien : $url");
+  Future<void> _openExternalLink(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      print("Impossible d'ouvrir le lien : $url");
+    }
   }
-}
-
 
   void _setupNotificationListeners() {
     // SOLUTION PROBLÈME 2: Gestion des notifications en premier plan avec notifications natives
@@ -175,7 +201,9 @@ Future<void> _openExternalLink(String url) async {
       _handleNotificationClick(message);
     });
 
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+    FirebaseMessaging.instance.getInitialMessage().then((
+      RemoteMessage? message,
+    ) {
       if (message != null) {
         print('App lancée par notification: ${message.messageId}');
         if (widget.initialUrl == null) {
@@ -191,20 +219,22 @@ Future<void> _openExternalLink(String url) async {
     String body = message.notification?.body ?? 'Nouveau message';
     String? url = message.data['url'];
 
-    const AndroidNotificationDetails androidNotificationDetails = AndroidNotificationDetails(
-      'equiphorse_channel',
-      'Equiphorse Notifications',
-      channelDescription: 'Notifications de l\'application Equiphorse',
-      importance: Importance.max,
-      priority: Priority.high,
-      showWhen: true,
-    );
+    const AndroidNotificationDetails androidNotificationDetails =
+        AndroidNotificationDetails(
+          'equiphorse_channel',
+          'Equiphorse Notifications',
+          channelDescription: 'Notifications de l\'application Equiphorse',
+          importance: Importance.max,
+          priority: Priority.high,
+          showWhen: true,
+        );
 
-    const DarwinNotificationDetails iosNotificationDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
+    const DarwinNotificationDetails iosNotificationDetails =
+        DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        );
 
     const NotificationDetails notificationDetails = NotificationDetails(
       android: androidNotificationDetails,
@@ -235,7 +265,7 @@ Future<void> _openExternalLink(String url) async {
 
   void _handleNotificationClick(RemoteMessage message) {
     final String? url = message.data['url'];
-    
+
     if (url != null && url.isNotEmpty) {
       print('Redirection vers: $url');
       // SOLUTION PROBLÈME 1: Ajouter l'URL d'accueil avant si ce n'est pas déjà fait
@@ -285,11 +315,12 @@ Future<void> _openExternalLink(String url) async {
     );
 
     if (Platform.isIOS) {
-      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
     }
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
@@ -307,7 +338,7 @@ Future<void> _openExternalLink(String url) async {
   // SOLUTION PROBLÈME 1: Gestion personnalisée du retour
   Future<bool> _onWillPop() async {
     print('Navigation history: $_navigationHistory');
-    
+
     if (_navigationHistory.length > 1) {
       // Supprimer l'URL actuelle
       _navigationHistory.removeLast();
@@ -317,90 +348,130 @@ Future<void> _openExternalLink(String url) async {
       await _controller.loadRequest(Uri.parse(previousUrl));
       return false; // Ne pas fermer l'app
     }
-    
+
     // Si on est sur la page d'accueil ou plus d'historique, permettre la fermeture
     if (await _controller.canGoBack()) {
       await _controller.goBack();
       return false;
     }
-    
+
     return true; // Fermer l'app
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: _onWillPop, // SOLUTION PROBLÈME 1: Utiliser la nouvelle logique
+      onWillPop: _onWillPop,
+      // SOLUTION PROBLÈME 1: Utiliser la nouvelle logique
       child: Scaffold(
         body: SafeArea(
-          child : Stack(
-          children: [
-            WebViewWidget(controller: _controller),
+          child: Stack(
+            children: [
+              WebViewWidget(controller: _controller),
 
-            if (_isDialogVisible && !_notificationsAllowed)
-              GestureDetector(
-                onTap: () => setState(() => _isDialogVisible = false),
-                child: Container(
-                  color: Colors.black.withOpacity(0.4),
-                  alignment: Alignment.center,
-                  child: GestureDetector(
-                    onTap: () {},
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      margin: const EdgeInsets.symmetric(horizontal: 30),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.notifications_active, size: 40, color: Colors.blue),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Notifications',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+              if (_isDialogVisible && !_notificationsAllowed)
+                GestureDetector(
+                  onTap: () => setState(() => _isDialogVisible = false),
+                  child: Container(
+                    color: Colors.black.withOpacity(0.4),
+                    alignment: Alignment.center,
+                    child: GestureDetector(
+                      onTap: () {},
+                      child: Container(
+                        padding: const EdgeInsets.all(20),
+                        margin: const EdgeInsets.symmetric(horizontal: 30),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.notifications_active,
+                              size: 40,
+                              color: Colors.blue,
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'Autorisez les notifications pour recevoir les alertes importantes et rester informé.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 16, color: Colors.black54),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _requestPermission,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                              child: const Text(
-                                'Autoriser',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Notifications',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
                               ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Autorisez les notifications pour recevoir les alertes importantes et rester informé.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Autoriser
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _requestPermission,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Autoriser',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            // Ignorer
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: () =>
+                                    setState(() => _isDialogVisible = false),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.grey),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Ignorer',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        )
+            ],
+          ),
         ),
       ),
     );
