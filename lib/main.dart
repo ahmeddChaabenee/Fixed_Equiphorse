@@ -264,17 +264,21 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   void _handleNotificationClick(RemoteMessage message) {
+    print('Notification complète: ${message.data}');
+
     final String? url = message.data['url'];
 
     if (url != null && url.isNotEmpty) {
       print('Redirection vers: $url');
-      // SOLUTION PROBLÈME 1: Ajouter l'URL d'accueil avant si ce n'est pas déjà fait
+
+      // Ensure homeUrl is added to navigation history
       if (_navigationHistory.isEmpty || !_navigationHistory.contains(homeUrl)) {
         _navigationHistory.add(homeUrl);
       }
+
       _controller.loadRequest(Uri.parse(url));
     } else {
-      print('Aucune URL trouvée dans les données de notification');
+      print('Aucune URL trouvée dans la notification');
       _controller.loadRequest(Uri.parse(homeUrl));
     }
   }
