@@ -139,6 +139,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void _initWebView() {
     String startUrl = widget.initialUrl ?? homeUrl;
 
+    // Add initial URLs to navigation history
     if (widget.initialUrl != null) {
       _navigationHistory.add(homeUrl);
     }
@@ -149,31 +150,21 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
+            print("Page started: $url");
             if (_navigationHistory.isEmpty || _navigationHistory.last != url) {
               _navigationHistory.add(url);
             }
           },
           onPageFinished: (String url) {
+            print("Page finished: $url");
             setState(() {
               _isWebViewReady = true;
             });
           },
-          onNavigationRequest: (request) {
-            final url = request.url;
-
-            // Autoriser domaine principal
-            if (url.startsWith('https://equiphorse.tn')) {
-              return NavigationDecision.navigate;
-            }
-
-            // Autoriser YouTube à rester dans le WebView
-            if (url.contains("youtube.com") || url.contains("youtu.be")) {
-              return NavigationDecision.navigate;
-            }
-
-            // Sinon, ouvrir en externe
-            _openExternalLink(url);
-            return NavigationDecision.prevent;
+          onNavigationRequest: (NavigationRequest request) {
+            print("Navigation request to: ${request.url}");
+            // Allow all URLs to load inside WebView
+            return NavigationDecision.navigate;
           },
         ),
       )
