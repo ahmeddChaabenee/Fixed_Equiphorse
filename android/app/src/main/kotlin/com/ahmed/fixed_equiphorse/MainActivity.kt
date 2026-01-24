@@ -1,4 +1,4 @@
-package com.example.fixed_equiphorse
+package com.ahmed.fixed_equiphorse
 
 import io.flutter.embedding.android.FlutterActivity
 

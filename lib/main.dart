@@ -8,8 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // Instance pour les notifications locales
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 // Handler des notifications en arrière-plan
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -26,47 +25,30 @@ _MyHomePageState? _currentAppInstance;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-
+  
+  // Initialiser les notifications locales
   await _initializeLocalNotifications();
-
-  // Request iOS permissions
-  if (Platform.isIOS) {
-    await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    // Foreground notifications
-    await FirebaseMessaging.instance
-        .setForegroundNotificationPresentationOptions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-  }
-
+  
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
+  
+  // Vérifier s'il y a une notification au démarrage
   final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
   if (initialMessage != null) {
     _notificationUrl = initialMessage.data['url'];
   }
-
+  
   runApp(MyApp(initialUrl: _notificationUrl));
 }
 
 // SOLUTION PROBLÈME 2: Initialisation des notifications locales
 Future<void> _initializeLocalNotifications() async {
-  const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-
-  const DarwinInitializationSettings initializationSettingsIOS =
-      DarwinInitializationSettings(
-        requestSoundPermission: true,
-        requestBadgePermission: true,
-        requestAlertPermission: true,
-      );
+  const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+  
+  const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings(
+    requestSoundPermission: true,
+    requestBadgePermission: true,
+    requestAlertPermission: true,
+  );
 
   const InitializationSettings initializationSettings = InitializationSettings(
     android: initializationSettingsAndroid,
@@ -75,22 +57,21 @@ Future<void> _initializeLocalNotifications() async {
 
   await flutterLocalNotificationsPlugin.initialize(
     initializationSettings,
-    onDidReceiveNotificationResponse:
-        (NotificationResponse notificationResponse) async {
-          // Gérer le clic sur notification locale
-          final String? payload = notificationResponse.payload;
-          if (payload != null && _currentAppInstance != null) {
-            print('Notification locale cliquée avec payload: $payload');
-            // Rediriger vers l'URL dans l'app
-            _currentAppInstance!._handleNotificationUrl(payload);
-          }
-        },
+    onDidReceiveNotificationResponse: (NotificationResponse notificationResponse) async {
+      // Gérer le clic sur notification locale
+      final String? payload = notificationResponse.payload;
+      if (payload != null && _currentAppInstance != null) {
+        print('Notification locale cliquée avec payload: $payload');
+        // Rediriger vers l'URL dans l'app
+        _currentAppInstance!._handleNotificationUrl(payload);
+      }
+    },
   );
 }
 
 class MyApp extends StatelessWidget {
   final String? initialUrl;
-
+  
   const MyApp({super.key, this.initialUrl});
 
   @override
@@ -106,7 +87,7 @@ class MyApp extends StatelessWidget {
 
 class MyHomePage extends StatefulWidget {
   final String? initialUrl;
-
+  
   const MyHomePage({super.key, this.initialUrl});
 
   @override
@@ -118,7 +99,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   bool _isDialogVisible = false;
   bool _notificationsAllowed = false;
   bool _isWebViewReady = false;
-
+  int _loadingCount = 0;
+  
   // SOLUTION PROBLÈME 1: Stack pour gérer l'historique de navigation
   final List<String> _navigationHistory = [];
   static const String homeUrl = 'https://equiphorse.tn/equiphorse/fr/';
@@ -128,7 +110,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     super.initState();
     // Enregistrer cette instance comme instance courante
     _currentAppInstance = this;
-
+    
     WidgetsBinding.instance.addObserver(this);
     _initWebView();
     _checkNotificationStatus();
@@ -146,38 +128,112 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      // AJOUT: Intercepter les clics pour afficher le spinner immédiatement
+      ..addJavaScriptChannel(
+        'FlutterClickHandler',
+        onMessageReceived: (JavaScriptMessage message) {
+          // Dès qu'un clic est détecté, afficher le spinner immédiatement
+          if (mounted) {
+            setState(() {
+              _isWebViewReady = false;
+            });
+            print('Clic détecté, spinner affiché immédiatement');
+          }
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
+            setState(() {
+              _loadingCount++;
+              // Ne pas modifier _isWebViewReady ici, il peut déjà être à false depuis le clic
+            });
             if (_navigationHistory.isEmpty || _navigationHistory.last != url) {
               _navigationHistory.add(url);
             }
           },
           onPageFinished: (String url) {
             setState(() {
-              _isWebViewReady = true;
+              _loadingCount = (_loadingCount > 0) ? _loadingCount - 1 : 0;
+              _isWebViewReady = _loadingCount == 0;
             });
+            // Réinjecter le script après chaque navigation
+            _injectClickInterceptor();
+          },
+          // AJOUT: Gestion des erreurs pour éviter spinner infini
+          onWebResourceError: (WebResourceError error) {
+            setState(() {
+              _loadingCount = (_loadingCount > 0) ? _loadingCount - 1 : 0;
+              _isWebViewReady = _loadingCount == 0;
+            });
+            print('Erreur de chargement: ${error.description}');
           },
           onNavigationRequest: (request) {
-            final url = request.url;
-
-            // Autoriser domaine principal
-            if (url.startsWith('https://equiphorse.tn')) {
+            if (request.url.startsWith('https://equiphorse.tn')) {
+              // MODIFICATION: Afficher le spinner dès la décision de navigation
+              setState(() {
+                _isWebViewReady = false;
+              });
               return NavigationDecision.navigate;
             }
-
-            // Autoriser YouTube à rester dans le WebView
-            if (url.contains("youtube.com") || url.contains("youtu.be")) {
-              return NavigationDecision.navigate;
-            }
-
-            // Sinon, ouvrir en externe
-            _openExternalLink(url);
+            _openExternalLink(request.url);
             return NavigationDecision.prevent;
           },
         ),
       )
       ..loadRequest(Uri.parse(startUrl));
+
+    // Injecter le script JavaScript après un délai
+    Future.delayed(const Duration(seconds: 1), () {
+      _injectClickInterceptor();
+    });
+  }
+
+  // NOUVELLE MÉTHODE: Injecter le JavaScript pour intercepter les clics
+  Future<void> _injectClickInterceptor() async {
+    try {
+      await _controller.runJavaScript('''
+        (function() {
+          // Supprimer les anciens listeners pour éviter les doublons
+          if (window.flutterClickListenerAdded) {
+            return;
+          }
+          window.flutterClickListenerAdded = true;
+          
+          // Intercepter tous les clics sur les liens
+          document.addEventListener('click', function(event) {
+            var target = event.target;
+            
+            // Remonter jusqu'à trouver un lien ou un élément cliquable
+            while (target && target !== document) {
+              if (target.tagName === 'A' || 
+                  target.onclick || 
+                  target.getAttribute('href') ||
+                  target.classList.contains('btn') ||
+                  target.classList.contains('button')) {
+                
+                // Vérifier si c'est une navigation interne
+                var href = target.href || target.getAttribute('href') || '';
+                if (href && (href.includes('equiphorse.tn') || href.startsWith('/') || href.startsWith('#') === false)) {
+                  FlutterClickHandler.postMessage('link_clicked');
+                  break;
+                }
+              }
+              target = target.parentElement;
+            }
+          });
+          
+          // Intercepter aussi les soumissions de formulaires
+          document.addEventListener('submit', function(event) {
+            FlutterClickHandler.postMessage('form_submitted');
+          });
+          
+          console.log('Flutter click interceptor injected successfully');
+        })();
+      ''');
+    } catch (e) {
+      print('Erreur lors de l\'injection du script: $e');
+    }
   }
 
   Future<void> _openExternalLink(String url) async {
@@ -201,9 +257,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _handleNotificationClick(message);
     });
 
-    FirebaseMessaging.instance.getInitialMessage().then((
-      RemoteMessage? message,
-    ) {
+    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
         print('App lancée par notification: ${message.messageId}');
         if (widget.initialUrl == null) {
@@ -219,22 +273,20 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     String body = message.notification?.body ?? 'Nouveau message';
     String? url = message.data['url'];
 
-    const AndroidNotificationDetails androidNotificationDetails =
-        AndroidNotificationDetails(
-          'equiphorse_channel',
-          'Equiphorse Notifications',
-          channelDescription: 'Notifications de l\'application Equiphorse',
-          importance: Importance.max,
-          priority: Priority.high,
-          showWhen: true,
-        );
+    const AndroidNotificationDetails androidNotificationDetails = AndroidNotificationDetails(
+      'equiphorse_channel',
+      'Equiphorse Notifications',
+      channelDescription: 'Notifications de l\'application Equiphorse',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
+    );
 
-    const DarwinNotificationDetails iosNotificationDetails =
-        DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        );
+    const DarwinNotificationDetails iosNotificationDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
 
     const NotificationDetails notificationDetails = NotificationDetails(
       android: androidNotificationDetails,
@@ -264,29 +316,25 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   void _handleNotificationClick(RemoteMessage message) {
-    print('Notification complète: ${message.data}');
-
     final String? url = message.data['url'];
-
     if (url != null && url.isNotEmpty) {
-      print('Redirection vers: $url');
-
-      // Ensure homeUrl is added to navigation history
+      setState(() {
+        _isWebViewReady = false; // Spinner dès la navigation forcée
+      });
       if (_navigationHistory.isEmpty || !_navigationHistory.contains(homeUrl)) {
         _navigationHistory.add(homeUrl);
       }
-
       _controller.loadRequest(Uri.parse(url));
     } else {
-      print('Aucune URL trouvée dans la notification');
       _controller.loadRequest(Uri.parse(homeUrl));
     }
   }
 
   // Nouvelle méthode pour gérer les URLs de notification depuis les notifications locales
   void _handleNotificationUrl(String url) {
-    print('Redirection depuis notification locale vers: $url');
-    // Ajouter l'URL d'accueil avant si ce n'est pas déjà fait
+    setState(() {
+      _isWebViewReady = false; // Spinner dès la navigation forcée
+    });
     if (_navigationHistory.isEmpty || !_navigationHistory.contains(homeUrl)) {
       _navigationHistory.add(homeUrl);
     }
@@ -319,12 +367,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
 
     if (Platform.isIOS) {
-      await FirebaseMessaging.instance
-          .setForegroundNotificationPresentationOptions(
-            alert: true,
-            badge: true,
-            sound: true,
-          );
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
     }
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
@@ -342,7 +389,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   // SOLUTION PROBLÈME 1: Gestion personnalisée du retour
   Future<bool> _onWillPop() async {
     print('Navigation history: $_navigationHistory');
-
+    
     if (_navigationHistory.length > 1) {
       // Supprimer l'URL actuelle
       _navigationHistory.removeLast();
@@ -352,13 +399,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       await _controller.loadRequest(Uri.parse(previousUrl));
       return false; // Ne pas fermer l'app
     }
-
+    
     // Si on est sur la page d'accueil ou plus d'historique, permettre la fermeture
     if (await _controller.canGoBack()) {
       await _controller.goBack();
       return false;
     }
-
+    
     return true; // Fermer l'app
   }
 
@@ -366,13 +413,48 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: _onWillPop,
-      // SOLUTION PROBLÈME 1: Utiliser la nouvelle logique
       child: Scaffold(
         body: SafeArea(
           child: Stack(
             children: [
-              WebViewWidget(controller: _controller),
+              // MODIFICATION: Envelopper WebView dans GestureDetector comme solution de secours
+              GestureDetector(
+                onTap: () {
+                  // Solution de secours si JavaScript ne fonctionne pas
+                  setState(() {
+                    _isWebViewReady = false;
+                  });
+                  print('Tap détecté sur WebView (solution de secours)');
+                },
+                child: WebViewWidget(controller: _controller),
+              ),
 
+              // Indicateur de chargement
+              if (!_isWebViewReady)
+                Center(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Ton icône PNG au centre
+                      Image.asset(
+                        'assets/icone_de_chargement.png',
+                        width: 64,
+                        height: 64,
+                      ),
+                      // Spinner autour de l'icône
+                      SizedBox(
+                        width: 90,
+                        height: 90,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 5,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Dialog de demande de permission
               if (_isDialogVisible && !_notificationsAllowed)
                 GestureDetector(
                   onTap: () => setState(() => _isDialogVisible = false),
@@ -391,11 +473,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.notifications_active,
-                              size: 40,
-                              color: Colors.blue,
-                            ),
+                            const Icon(Icons.notifications_active, size: 40, color: Colors.blue),
                             const SizedBox(height: 12),
                             const Text(
                               'Notifications',
@@ -409,14 +487,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                             const Text(
                               'Autorisez les notifications pour recevoir les alertes importantes et rester informé.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.black54,
-                              ),
+                              style: TextStyle(fontSize: 16, color: Colors.black54),
                             ),
                             const SizedBox(height: 20),
-
-                            // Autoriser
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
@@ -426,43 +499,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
                                 ),
                                 child: const Text(
                                   'Autoriser',
                                   style: TextStyle(
                                     fontSize: 16,
                                     color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 10),
-
-                            // Ignorer
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton(
-                                onPressed: () =>
-                                    setState(() => _isDialogVisible = false),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.grey),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Ignorer',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.black87,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),

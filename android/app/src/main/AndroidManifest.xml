@@ -1,14 +1,14 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.fixed_equiphorse">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    
-    <!-- Permissions pour lancer des URLs -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <!-- Permissions pour lancer des URLs
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" /> -->
     
     <application
-        android:label="fixed_equiphorse"
+        android:label="Equip'horse Tunisie"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
